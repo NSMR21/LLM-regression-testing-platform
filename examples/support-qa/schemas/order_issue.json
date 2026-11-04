@@ -1,0 +1,10 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "order_id": { "type": "string", "pattern": "^[A-Z]-\\d{4}$" },
+    "issue": { "type": "string", "enum": ["late", "damaged", "wrong_item", "other"] }
+  },
+  "required": ["order_id", "issue"],
+  "additionalProperties": false
+}

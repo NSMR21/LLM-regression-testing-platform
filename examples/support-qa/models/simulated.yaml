@@ -1,0 +1,16 @@
+# No GPU needed: a simulated model with known per-case accuracy.
+# Prompt text changes simulated quality through prompt_effects, so editing the prompt
+# behaves like it would with a real model (v2 drops the "Answer with only" instructions).
+name: simulated
+provider: simulated
+model: sim-support
+params:
+  temperature: 0.7
+simulation:
+  accuracy: 0.8
+  spread: 0.15
+  latency_ms: 300
+  prompt_effects:
+    'Answer with only': 0.12
+    'Reply with only a JSON object': 0.12
+    'final sale': 0.03

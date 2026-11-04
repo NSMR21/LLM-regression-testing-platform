@@ -1,0 +1,36 @@
+{
+  "permissions": {
+    "allow": [
+      "Edit(/**)",
+      "Bash(python *)",
+      "Bash(python3 *)",
+      "Bash(pip install *)",
+      "Bash(pip3 install *)",
+      "Bash(pip show *)",
+      "Bash(pip list*)",
+      "Bash(pytest*)",
+      "Bash(python -m pytest*)",
+      "Bash(ruff *)",
+      "Bash(mypy *)",
+      "Bash(uvicorn *)",
+      "Bash(alembic *)",
+      "Bash(rlens *)",
+      "Bash(npm install*)",
+      "Bash(npm ci*)",
+      "Bash(npm run *)",
+      "Bash(npx vite *)",
+      "Bash(npx tsc *)",
+      "Bash(docker compose *)",
+      "Bash(git status*)",
+      "Bash(git diff*)",
+      "Bash(git log*)",
+      "Bash(git add *)",
+      "Bash(git commit *)",
+      "Bash(git checkout *)",
+      "Bash(git fetch origin *)",
+      "Bash(git pull origin *)",
+      "Bash(git push -u origin claude/*)",
+      "Bash(git push origin claude/*)"
+    ]
+  }
+}

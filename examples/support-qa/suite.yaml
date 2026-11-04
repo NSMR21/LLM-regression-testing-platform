@@ -1,0 +1,179 @@
+# Example suite: a support assistant for a fictional outdoor store.
+# Policy questions (yes/no), numeric facts, and structured extraction (JSON).
+name: support-qa
+description: Answers customer questions from the store policy and extracts order issues as JSON.
+
+verdict:
+  primary_metric: pass_rate
+  alpha: 0.05
+  non_inferiority_margin: 0.03   # a drop of up to 3 points is tolerated for a PASS
+  gates:
+    - { metric: schema, min: 0.85 } # JSON validity on extraction cases
+  inconclusive: warn
+  max_error_rate: 0.05
+
+x-yesno: &yesno
+  - { id: answer, type: choice, choices: ["yes", "no"] }
+x-number: &number
+  - { id: answer, type: numeric, pick: first }
+x-extract: &extract
+  - { id: schema, type: json_schema, schema_file: schemas/order_issue.json }
+  - { id: order_id, type: json_field, path: order_id, normalize: [strip, lower] }
+  - { id: issue, type: json_field, path: issue }
+
+cases:
+  # --- returns & refunds -------------------------------------------------------------------
+  - key: return-within-window
+    tags: [policy, returns]
+    input: { format: yesno, question: "I bought boots 20 days ago and they are unworn with tags. Can I return them?" }
+    expected: "yes"
+    graders: *yesno
+  - key: return-after-window
+    tags: [policy, returns]
+    input: { format: yesno, question: "My order arrived 45 days ago. Can I still return it for a refund?" }
+    expected: "no"
+    graders: *yesno
+  - key: return-final-sale
+    tags: [policy, returns]
+    critical: true
+    input: { format: yesno, question: "Can I return a jacket that was marked final sale?" }
+    expected: "no"
+    graders: *yesno
+  - key: return-worn
+    tags: [policy, returns]
+    input: { format: yesno, question: "I wore my sneakers on a hike once. Can I return them?" }
+    expected: "no"
+    graders: *yesno
+  - key: return-needs-tags
+    tags: [policy, returns]
+    input: { format: yesno, question: "Do I need the tags attached to return an item?" }
+    expected: "yes"
+    graders: *yesno
+  - key: gift-card-refund
+    tags: [policy, returns]
+    input: { format: yesno, question: "Can I get a refund for a gift card I bought?" }
+    expected: "no"
+    graders: *yesno
+  - key: refund-to-card
+    tags: [policy, returns]
+    input: { format: yesno, question: "Will my refund go back to the credit card I paid with?" }
+    expected: "yes"
+    graders: *yesno
+  - key: exchange-size-50-days
+    tags: [policy, exchanges]
+    input: { format: yesno, question: "I want a different size of a shirt I received 50 days ago. Can I exchange it for free?" }
+    expected: "yes"
+    graders: *yesno
+  - key: exchange-size-70-days
+    tags: [policy, exchanges]
+    input: { format: yesno, question: "Can I exchange pants for a different size 70 days after delivery?" }
+    expected: "no"
+    graders: *yesno
+  - key: international-return-accepted
+    tags: [policy, international]
+    input: { format: yesno, question: "I live in Canada. Will you accept my return?" }
+    expected: "yes"
+    graders: *yesno
+  - key: international-return-shipping
+    tags: [policy, international]
+    input: { format: yesno, question: "I live in Germany. Do you pay the return shipping for my return?" }
+    expected: "no"
+    graders: *yesno
+  - key: price-match-in-window
+    tags: [policy, pricing]
+    input: { format: yesno, question: "You lowered the price of my tent 10 days after I bought it. Can I get the difference back?" }
+    expected: "yes"
+    graders: *yesno
+  - key: price-match-late
+    tags: [policy, pricing]
+    input: { format: yesno, question: "The price of my stove dropped 3 weeks after I bought it. Can I get a price match?" }
+    expected: "no"
+    graders: *yesno
+  # --- shipping -----------------------------------------------------------------------------
+  - key: free-shipping-72
+    tags: [policy, shipping]
+    input: { format: yesno, question: "Is standard shipping free on a $72 order to Ohio?" }
+    expected: "yes"
+    graders: *yesno
+  - key: free-shipping-35
+    tags: [policy, shipping]
+    input: { format: yesno, question: "Is standard shipping free on a $35 order to Texas?" }
+    expected: "no"
+    graders: *yesno
+  - key: free-shipping-exactly-50
+    tags: [policy, shipping, edge]
+    input: { format: yesno, question: "My order total is exactly $50.00 and ships to Oregon. Is standard shipping free?" }
+    expected: "no"
+    graders: *yesno
+  - key: free-shipping-hawaii
+    tags: [policy, shipping, edge]
+    input: { format: yesno, question: "Is standard shipping free on a $90 order to Hawaii?" }
+    expected: "no"
+    graders: *yesno
+  # --- numeric facts ------------------------------------------------------------------------
+  - key: express-cost
+    tags: [numeric, shipping]
+    input: { format: number, question: "How much does express shipping cost, in dollars?" }
+    expected: 15
+    graders: *number
+  - key: return-days
+    tags: [numeric, returns]
+    input: { format: number, question: "How many days after delivery do I have to return an item?" }
+    expected: 30
+    graders: *number
+  - key: exchange-days
+    tags: [numeric, exchanges]
+    input: { format: number, question: "How many days do I have to exchange an item for a different size?" }
+    expected: 60
+    graders: *number
+  - key: refund-business-days
+    tags: [numeric, returns]
+    input: { format: number, question: "Within how many business days is a refund issued after you receive my return?" }
+    expected: 5
+    graders: *number
+  - key: price-match-days
+    tags: [numeric, pricing]
+    input: { format: number, question: "Within how many days of purchase do you match a lower price?" }
+    expected: 14
+    graders: *number
+  # --- extraction ---------------------------------------------------------------------------
+  - key: extract-late-1
+    tags: [extraction]
+    input: { format: json, question: "Order #A-1932 never arrived and it's been three weeks." }
+    expected: { order_id: "A-1932", issue: late }
+    graders: *extract
+  - key: extract-damaged-1
+    tags: [extraction]
+    input: { format: json, question: "My order B-2210 came with a cracked water bottle." }
+    expected: { order_id: "B-2210", issue: damaged }
+    graders: *extract
+  - key: extract-wrong-item-1
+    tags: [extraction]
+    input: { format: json, question: "I ordered a blue tent (order C-7781) but got a red sleeping bag." }
+    expected: { order_id: "C-7781", issue: wrong_item }
+    graders: *extract
+  - key: extract-other-1
+    tags: [extraction]
+    input: { format: json, question: "Hi, about order D-0042: can I change the delivery address?" }
+    expected: { order_id: "D-0042", issue: other }
+    graders: *extract
+  - key: extract-damaged-2
+    tags: [extraction]
+    input: { format: json, question: "The box for order E-5530 was crushed and the stove inside is dented." }
+    expected: { order_id: "E-5530", issue: damaged }
+    graders: *extract
+  - key: extract-late-2
+    tags: [extraction]
+    input: { format: json, question: "Where is my order F-9001? Tracking hasn't updated in 10 days." }
+    expected: { order_id: "F-9001", issue: late }
+    graders: *extract
+  - key: extract-wrong-item-2
+    tags: [extraction]
+    input: { format: json, question: "Order G-3141 has the wrong size boots in it." }
+    expected: { order_id: "G-3141", issue: wrong_item }
+    graders: *extract
+  - key: extract-other-2
+    tags: [extraction]
+    input: { format: json, question: "For order H-2718 I'd like to add gift wrapping, please." }
+    expected: { order_id: "H-2718", issue: other }
+    graders: *extract

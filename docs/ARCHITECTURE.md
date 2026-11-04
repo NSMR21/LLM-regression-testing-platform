@@ -93,7 +93,7 @@ flowchart LR
 | Language (backend, CLI) | Python 3.12 | The stats (NumPy/SciPy) and LLM-client ecosystems are here, and one language covers API, workers, and CLI. |
 | API | FastAPI + Pydantic v2 | Typed request/response models. The generated OpenAPI spec is used by the CLI and dashboard. |
 | Database | PostgreSQL 16, SQLAlchemy 2, Alembic | JSONB for config snapshots and raw responses; relational queries for history and trends. |
-| Job queue | Postgres-backed queue (`procrastinate`, built on `SKIP LOCKED` + `LISTEN/NOTIFY`) | No Redis. Enqueueing is transactional with run creation. Throughput is far beyond what a local GPU can consume. |
+| Job queue | A small `jobs` table in Postgres, claimed with `SELECT … FOR UPDATE SKIP LOCKED` | No Redis. Enqueueing is transactional with run creation. Throughput is far beyond what a local GPU can consume. |
 | HTTP to models | `httpx` (async) | Workers are I/O-bound on model-server calls. |
 | Stats | NumPy, SciPy | Bootstrap, permutation tests, McNemar, kappa. |
 | Schema grading | `jsonschema` | Standard JSON Schema validation. |
@@ -321,8 +321,9 @@ grader versions are never silently compared.
 | `llm_judge` | pass/fail or 1–5 scale normalized to [0,1] | Pinned judge model (digest, temperature 0, seed), rubric text stored in the snapshot, structured output (`{verdict, score, rationale}`), and optional reference answer. It warns when the judge model equals the model under test (self-preference bias). |
 
 **Trial pass rule.** A trial passes when all of its *required* graders pass.
-Each grader also produces its own metric, so a run reports `pass_rate`, plus
-`json_schema.valid_rate`, `judge.mean_score`, and so on.
+Each grader also produces its own metric, named by the grader's `id`. A run
+reports `pass_rate`, plus for example `schema` (JSON validity rate) and `judge`
+(mean judge score), along with `error_rate`, `latency_p50_ms` and `latency_p95_ms`.
 
 ### Suite file (suites-as-code, lives in the user's repo)
 
@@ -338,7 +339,7 @@ verdict:
   non_inferiority_margin: 0.02 # tolerated drop for a PASS (2 points)
   min_effect: 0.0              # ignore statistically-significant drops smaller than this
   gates:
-    - { metric: json_schema.valid_rate, min: 0.99 }
+    - { metric: schema, min: 0.99 } # the json_schema grader below has id `schema`
   inconclusive: warn           # warn | fail | pass  (how CI should treat it)
   max_error_rate: 0.05
 cases:
@@ -353,15 +354,24 @@ cases:
     tags: [extraction]
     input: { email: "Hi, my order #A-1932 never arrived…" }
     graders:
-      - { id: schema, type: json_schema, schema: { $ref: "schemas/order.json" } }
-      - { id: judge, type: llm_judge, rubric_file: rubrics/order_extraction.md }
+      - { id: schema, type: json_schema, schema_file: schemas/order.json }
+      - id: judge
+        type: llm_judge
+        rubric_file: rubrics/order_extraction.md
+        judge_model: { provider: ollama, model: "qwen2.5:14b", params: { temperature: 0 } }
 ```
+
+Keys ending in `_file` inside a grader are inlined by the loader (JSON/YAML files
+are parsed, anything else is read as text), so the suite's content hash covers
+every file that affects scoring. Top-level keys starting with `x-` are ignored and
+can hold YAML anchors for grader lists shared by many cases. A runnable example
+lives in `examples/support-qa/`.
 
 ---
 
 ## 8. Statistics engine
 
-The engine is a pure library (`backend/app/stats/`) with no database or network
+The engine is a pure library (`backend/regressionlens/stats/`) with no database or network
 access. That makes it easy to test exhaustively against simulated data.
 
 ### 8.1 Per-case scores
@@ -379,14 +389,18 @@ Effect: `Δ = mean_c d_c`.
 
 | Situation | Method |
 |---|---|
-| Default (any score type, any repeats) | **Two-stage paired cluster bootstrap.** Resample cases with replacement, then resample repeats within each sampled case on each side. Take percentile (or BCa) CI for Δ with B = 10,000. |
+| CI for Δ (any score type, any repeats) | **Paired case-level bootstrap** of the `d_c` (percentile, B = 10,000), widened to the Student-t interval when that is wider. The two agree for large suites; for small ones the percentile bootstrap is too narrow. |
 | p-value | **Paired sign-flip permutation test** on `d_c`. It is exact for small *n*. |
 | Binary scores, 1 repeat | **Exact McNemar test** on discordant pairs, reported alongside the bootstrap. |
 | Latency | Paired difference in per-case median latency with a bootstrap CI. Reports p50/p95. Informational unless the suite sets a latency gate. |
 
-Resampling at the case level is what keeps identical runs from triggering false
-alarms. Pooling all trials as independent samples would understate the variance
-whenever cases differ in difficulty, and they always do.
+Working on whole per-case differences is what keeps identical runs from
+triggering false alarms. Repeats of one case are not independent evidence: with
+deterministic decoding, batching or server state they are correlated, and
+treating *n × k* trials as independent overstates the information by up to *k×*.
+Resampling or sign-flipping the `d_c` is valid whatever that correlation is, and
+the sign-flip test is exact under the null that baseline and candidate are
+exchangeable (which is what an identical configuration means).
 
 ### 8.3 Verdict rules
 
@@ -396,16 +410,18 @@ With a two-sided 95% CI `[L, U]` for Δ on each gated metric:
    configs (for example, different grader versions). This is an infrastructure
    problem, not a regression.
 2. **FAIL**: any of these:
-   - `U < 0` and `Δ ≤ −min_effect`: a real drop, at a one-sided false-alarm rate of ≤ 2.5% per metric.
+   - The sign-flip p-value (Holm-adjusted across gated metrics) is below α, Δ < 0
+     and `|Δ| ≥ min_effect`: a real drop. Because the test is two-sided, the
+     false-alarm rate on identical configurations is at most α/2 = 2.5% per metric.
    - An absolute gate is violated (for example, schema validity < 99%).
    - A `critical` case fails in a majority of its repeats.
-3. **PASS**: `L ≥ −non_inferiority_margin` for every gated metric. Any drop that
-   exists is smaller than the tolerated margin.
+3. **PASS**: `L ≥ −non_inferiority_margin` for every gated metric, with at least
+   5 comparable cases. Any drop that exists is smaller than the tolerated margin.
 4. **INCONCLUSIVE**: everything else. The CI is too wide to tell. The response
    includes the minimum detectable effect (§8.6) and a suggested number of
    repeats or cases. The suite's `inconclusive:` policy decides the CI exit code.
 
-An **IMPROVED** note is attached when `L > 0`. With several gated metrics or tag
+An **IMPROVED** note is attached when the drop test is significant in the other direction (Δ > 0). With several gated metrics or tag
 slices, p-values get a Holm–Bonferroni correction so the family-wise false-alarm
 rate stays at the stated level.
 
@@ -425,8 +441,9 @@ caused the regression, with outputs side by side.
   suite. Cases flaky in a high fraction of runs get a persistent **flaky** badge
   and can be **quarantined**: they are reported but excluded from gating, which is
   an explicit and visible policy choice.
-- **Verdict annotation.** When most of `|Δ|` comes from flaky cases, the verdict
-  says so ("62% of the drop comes from 4 flaky cases").
+- **Verdict annotation.** When at least half of a failing drop comes from a few
+  cases that were already flaky in the baseline, the verdict says so ("62% of the
+  drop comes from 4 case(s) that were already flaky in the baseline").
 - Temperature 0 is not assumed to be deterministic. GPU kernels and batching cause
   drift, and the platform measures it instead of assuming it away.
 
@@ -610,27 +627,33 @@ runs then confirm the same behavior on real noise.
 
 ## 16. Repository layout
 
+One Python package, `regressionlens`, holds the engine, the API, the workers and
+the CLI. The API and workers are separate processes over the same code, which
+keeps the run pipeline identical in local mode, in tests, and on the server.
+
 ```
 .
 ├── backend/
-│   ├── app/
-│   │   ├── api/          # FastAPI routers (suites, runs, verdicts, labels, trends)
-│   │   ├── core/         # settings, db session, auth, logging
-│   │   ├── models/       # SQLAlchemy ORM
-│   │   ├── schemas/      # Pydantic request/response + suite YAML schema
-│   │   ├── services/     # run orchestration, snapshotting, baselines, comparisons
-│   │   ├── providers/    # ollama, openai_compat, simulated
-│   │   ├── graders/      # registry + built-in graders
-│   │   ├── stats/        # bootstrap, permutation, mcnemar, flakiness, mde, agreement (pure)
-│   │   └── workers/      # queue tasks: execute_trial, grade_trial, analyze_run
-│   ├── migrations/       # Alembic
-│   └── tests/            # unit (stats, graders), integration (api + simulated provider)
-├── cli/                  # rlens (Typer)
-├── dashboard/            # React + Vite + TS
-├── examples/             # sample suites, prompts, model configs
-├── experiments/          # success-criteria harness + reports
-├── docs/
-│   └── ARCHITECTURE.md
+│   ├── pyproject.toml            # package `regressionlens`, console script `rlens`
+│   ├── regressionlens/
+│   │   ├── spec.py               # suite / prompt / model / execution specs + file loading
+│   │   ├── engine.py             # plan, execute, grade, summarize (shared by local + workers)
+│   │   ├── local.py              # in-process runner (`rlens run --local`)
+│   │   ├── records.py            # run / trial / score records (JSON shapes)
+│   │   ├── report.py             # console + Markdown verdict rendering
+│   │   ├── providers/            # ollama, openai_compat, simulated
+│   │   ├── graders/              # registry, deterministic graders, llm_judge
+│   │   ├── stats/                # bootstrap, sign-flip, McNemar, Holm, flakiness, MDE, kappa, verdict (pure)
+│   │   ├── db/                   # SQLAlchemy models, session, jobs-table queue, Alembic migrations
+│   │   ├── services.py           # run orchestration, baselines, comparisons, trends, labels
+│   │   ├── worker.py             # queue worker: execute_trial, grade_trial, analyze_run
+│   │   ├── api/                  # FastAPI app; serves the built dashboard
+│   │   └── cli/                  # `rlens` (Typer) + HTTP client for server mode
+│   └── tests/                    # unit (stats, graders, providers) + integration (local runner, API, worker)
+├── dashboard/                    # React + Vite + TS
+├── examples/support-qa/          # runnable example suite, prompts, model configs
+├── experiments/                  # success-criteria harness + reports
+├── docs/ARCHITECTURE.md
 └── docker-compose.yml
 ```
 
