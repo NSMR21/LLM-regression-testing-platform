@@ -34,6 +34,9 @@ jobs:
         env:
           RLENS_TEST_DATABASE_URL: postgresql://rlens:rlens@localhost:5432/regressionlens_test
         run: pytest -q tests/test_server.py tests/test_queue.py
+      - name: Success-criteria harness (quick)
+        working-directory: .
+        run: python experiments/success_criteria.py --quick --out /tmp/experiments
 
   dashboard:
     runs-on: ubuntu-latest

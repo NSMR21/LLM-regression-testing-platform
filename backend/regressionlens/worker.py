@@ -103,6 +103,7 @@ class Worker:
         max_threads = int(os.environ.get("RLENS_WORKER_THREADS", "16"))
         self.pool = ThreadPoolExecutor(max_workers=max_threads, thread_name_prefix="rlens-job")
         self._last_stale_check = 0.0
+        self._wake = threading.Event()  # set whenever a job finishes, so a freed slot is refilled at once
 
     # --- scheduling -------------------------------------------------------------------------
 
@@ -156,7 +157,8 @@ class Worker:
         while not stop.is_set():
             try:
                 if self.tick() == 0:
-                    stop.wait(self.settings.poll_interval_s)
+                    self._wake.wait(self.settings.poll_interval_s)
+                    self._wake.clear()
             except Exception:  # keep the worker alive through transient DB errors
                 log.exception("worker tick failed")
                 stop.wait(max(1.0, self.settings.poll_interval_s))
@@ -199,6 +201,7 @@ class Worker:
         finally:
             with self._lock:
                 self.inflight[job.queue] -= 1
+            self._wake.set()
 
     def handle_execute(self, job: queue.ClaimedJob):
         run_id, trial_id = job.payload["run_id"], job.payload["trial_id"]

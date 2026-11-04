@@ -1,0 +1,53 @@
+# RegressionLens on one machine: Postgres, the API (with dashboard), one worker,
+# and optionally Ollama (`docker compose --profile ollama up`).
+#
+#   RLENS_ADMIN_TOKEN=change-me docker compose up --build
+#   open http://localhost:8080 and sign in with the token
+#
+# If Ollama already runs on the host, point model configs at
+# http://host.docker.internal:11434 instead of using the profile.
+x-rlens-env: &rlens-env
+  RLENS_DATABASE_URL: postgresql://rlens:rlens@postgres:5432/regressionlens
+  RLENS_ADMIN_TOKEN: ${RLENS_ADMIN_TOKEN:-change-me}
+  RLENS_PUBLIC_URL: ${RLENS_PUBLIC_URL:-http://localhost:8080}
+  OLLAMA_HOST: ${OLLAMA_HOST:-http://ollama:11434}
+
+services:
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: rlens
+      POSTGRES_PASSWORD: rlens
+      POSTGRES_DB: regressionlens
+    volumes: [pgdata:/var/lib/postgresql/data]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U rlens"]
+      interval: 5s
+      retries: 10
+
+  api:
+    build: .
+    environment: *rlens-env
+    ports: ["8080:8080"]
+    depends_on:
+      postgres: { condition: service_healthy }
+    extra_hosts: ["host.docker.internal:host-gateway"]
+
+  # One worker per GPU: exec concurrency is enforced per worker process.
+  worker:
+    build: .
+    command: ["rlens", "worker"]
+    environment: *rlens-env
+    depends_on:
+      postgres: { condition: service_healthy }
+    extra_hosts: ["host.docker.internal:host-gateway"]
+
+  ollama:
+    image: ollama/ollama:0.5.7
+    profiles: [ollama]
+    volumes: [ollama:/root/.ollama]
+    ports: ["11434:11434"]
+
+volumes:
+  pgdata:
+  ollama:
