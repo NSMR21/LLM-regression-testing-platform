@@ -1,0 +1,346 @@
+{
+  "generated_at": "2026-11-04 22:27 UTC",
+  "version": "0.1.0",
+  "python": "3.13.18",
+  "quick": false,
+  "sc1": [
+    {
+      "label": "simulated",
+      "pairs": 40,
+      "repeats": 5,
+      "detection": {
+        "k": 35,
+        "n": 40,
+        "rate": 0.875,
+        "ci": [
+          0.7388757932976187,
+          0.9454058022645873
+        ]
+      },
+      "verdicts": {
+        "fail": 39,
+        "inconclusive": 1
+      },
+      "mean_delta": -0.128,
+      "median_p": 0.0025634765625
+    }
+  ],
+  "sc1_curve": {
+    "n_cases": 60,
+    "repeats": 5,
+    "comparisons": 40,
+    "rows": [
+      {
+        "shift": 0.0,
+        "mean_observed_delta": -0.007749999999999998,
+        "detection": {
+          "k": 2,
+          "n": 40,
+          "rate": 0.05,
+          "ci": [
+            0.013820377146101098,
+            0.165041708179252
+          ]
+        }
+      },
+      {
+        "shift": -0.02,
+        "mean_observed_delta": -0.028666666666666663,
+        "detection": {
+          "k": 4,
+          "n": 40,
+          "rate": 0.1,
+          "ci": [
+            0.03957888759557486,
+            0.23052074380473897
+          ]
+        }
+      },
+      {
+        "shift": -0.05,
+        "mean_observed_delta": -0.058833333333333335,
+        "detection": {
+          "k": 16,
+          "n": 40,
+          "rate": 0.4,
+          "ci": [
+            0.2634811061240136,
+            0.5540438017260649
+          ]
+        }
+      },
+      {
+        "shift": -0.08,
+        "mean_observed_delta": -0.08733333333333333,
+        "detection": {
+          "k": 28,
+          "n": 40,
+          "rate": 0.7,
+          "ci": [
+            0.545696893456796,
+            0.8192532908430471
+          ]
+        }
+      },
+      {
+        "shift": -0.1,
+        "mean_observed_delta": -0.10724999999999998,
+        "detection": {
+          "k": 33,
+          "n": 40,
+          "rate": 0.825,
+          "ci": [
+            0.6804970794560755,
+            0.9125469700311694
+          ]
+        }
+      },
+      {
+        "shift": -0.15,
+        "mean_observed_delta": -0.15791666666666665,
+        "detection": {
+          "k": 40,
+          "n": 40,
+          "rate": 1.0,
+          "ci": [
+            0.9123754607496077,
+            1.0
+          ]
+        }
+      },
+      {
+        "shift": -0.2,
+        "mean_observed_delta": -0.20825,
+        "detection": {
+          "k": 40,
+          "n": 40,
+          "rate": 1.0,
+          "ci": [
+            0.9123754607496077,
+            1.0
+          ]
+        }
+      }
+    ],
+    "smallest_drop_detected_80pct": -0.1,
+    "measured_80pct_drop": 0.09600000000000002,
+    "predicted_mde": 0.08614893600739441
+  },
+  "sc2": [
+    {
+      "label": "simulated",
+      "pairs": 300,
+      "repeats": 5,
+      "regression_alarms": {
+        "k": 2,
+        "n": 300,
+        "rate": 0.006666666666666667,
+        "ci": [
+          0.0018301100329710784,
+          0.023978074231461442
+        ]
+      },
+      "verdicts": {
+        "fail": 14,
+        "inconclusive": 237,
+        "pass": 49
+      },
+      "threshold": 0.025,
+      "note": "Regression alarms count paired-test FAILs only; absolute gates can still fail a run on its own merits."
+    }
+  ],
+  "sc2_correlated": {
+    "sims": 1000,
+    "n_cases": 40,
+    "repeats": 5,
+    "rows": [
+      {
+        "rho": 0.0,
+        "regressionlens": {
+          "k": 19,
+          "n": 1000,
+          "rate": 0.019,
+          "ci": [
+            0.012196787737404147,
+            0.029484688702703543
+          ]
+        },
+        "naive_pooled_z": {
+          "k": 17,
+          "n": 1000,
+          "rate": 0.017,
+          "ci": [
+            0.010640599663218203,
+            0.027056184371235047
+          ]
+        }
+      },
+      {
+        "rho": 0.5,
+        "regressionlens": {
+          "k": 24,
+          "n": 1000,
+          "rate": 0.024,
+          "ci": [
+            0.016180052367186296,
+            0.03546315508705749
+          ]
+        },
+        "naive_pooled_z": {
+          "k": 118,
+          "n": 1000,
+          "rate": 0.118,
+          "ci": [
+            0.0994512436719432,
+            0.13947250684805915
+          ]
+        }
+      },
+      {
+        "rho": 1.0,
+        "regressionlens": {
+          "k": 5,
+          "n": 1000,
+          "rate": 0.005,
+          "ci": [
+            0.0021375039957652504,
+            0.011651125604761368
+          ]
+        },
+        "naive_pooled_z": {
+          "k": 168,
+          "n": 1000,
+          "rate": 0.168,
+          "ci": [
+            0.14610756799568436,
+            0.192433492665679
+          ]
+        }
+      }
+    ],
+    "threshold": 0.025
+  },
+  "sc3": {
+    "n_labels": 60,
+    "human_noise": 0.03,
+    "rows": [
+      {
+        "judge_accuracy": 0.95,
+        "n": 60,
+        "accuracy": 0.95,
+        "kappa": 0.8999999999999999,
+        "kappa_ci": [
+          0.7671840354767183,
+          1.0
+        ],
+        "accuracy_ci": [
+          0.8833333333333333,
+          1.0
+        ],
+        "false_pass_rate": 0.06666666666666667,
+        "false_fail_rate": 0.03333333333333333,
+        "confusion": {
+          "grader_pass_human_pass": 28,
+          "grader_pass_human_fail": 2,
+          "grader_fail_human_pass": 1,
+          "grader_fail_human_fail": 29
+        },
+        "trust": "calibrated"
+      },
+      {
+        "judge_accuracy": 0.85,
+        "n": 60,
+        "accuracy": 0.9166666666666666,
+        "kappa": 0.8333333333333333,
+        "kappa_ci": [
+          0.6742671009771988,
+          0.9662162162162161
+        ],
+        "accuracy_ci": [
+          0.8333333333333334,
+          0.9833333333333333
+        ],
+        "false_pass_rate": 0.03333333333333333,
+        "false_fail_rate": 0.13333333333333333,
+        "confusion": {
+          "grader_pass_human_pass": 29,
+          "grader_pass_human_fail": 1,
+          "grader_fail_human_pass": 4,
+          "grader_fail_human_fail": 26
+        },
+        "trust": "calibrated"
+      },
+      {
+        "judge_accuracy": 0.7,
+        "n": 60,
+        "accuracy": 0.7,
+        "kappa": 0.3999999999999999,
+        "kappa_ci": [
+          0.15726689041295794,
+          0.6163234819121445
+        ],
+        "accuracy_ci": [
+          0.5833333333333334,
+          0.8166666666666667
+        ],
+        "false_pass_rate": 0.2,
+        "false_fail_rate": 0.4,
+        "confusion": {
+          "grader_pass_human_pass": 24,
+          "grader_pass_human_fail": 6,
+          "grader_fail_human_pass": 12,
+          "grader_fail_human_fail": 18
+        },
+        "trust": "weak"
+      }
+    ]
+  },
+  "sc4": {
+    "runs": 20,
+    "rescore_identical": {
+      "k": 1800,
+      "n": 1800,
+      "rate": 1.0,
+      "ci": [
+        0.9978703229817962,
+        1.0
+      ]
+    },
+    "replay_outputs_identical": {
+      "k": 1800,
+      "n": 1800,
+      "rate": 1.0,
+      "ci": [
+        0.9978703229817962,
+        1.0
+      ]
+    },
+    "replay_fingerprint_equal": {
+      "k": 20,
+      "n": 20,
+      "rate": 1.0,
+      "ci": [
+        0.8388698745050667,
+        1.0
+      ]
+    },
+    "replay_verdicts": {
+      "pass": 20
+    },
+    "fresh_seed_verdicts": {
+      "fail": 2,
+      "inconclusive": 14,
+      "pass": 4
+    },
+    "fresh_seed_regression_alarms": {
+      "k": 1,
+      "n": 20,
+      "rate": 0.05,
+      "ci": [
+        0.008881219432873136,
+        0.23613589351256675
+      ]
+    }
+  },
+  "seconds": 276.60204315185547
+}

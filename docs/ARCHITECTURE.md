@@ -160,21 +160,26 @@ erDiagram
 
 ### 4.3 Key tables
 
+As built (`backend/regressionlens/db/models.py`, migration `0001`). Specs are stored whole as JSON and
+content-addressed, so a suite version *is* its cases; there is no separate cases table.
+
 | Table | Key columns |
 |---|---|
-| `suite_versions` | `id, project_id, name, content_hash, spec JSONB, verdict_policy JSONB, created_at` |
-| `test_cases` | `id, suite_version_id, case_key, input JSONB, expected JSONB, graders JSONB, tags text[], critical bool` |
-| `prompt_versions` | `id, project_id, name, system_text, template_text, content_hash` |
-| `model_configs` | `id, project_id, provider, endpoint, model_tag, model_digest, params JSONB, content_hash` |
-| `run_configs` | `id, fingerprint UNIQUE, snapshot JSONB, suite_version_id, prompt_version_id, model_config_id` |
-| `runs` | `id, run_config_id, status, total_trials, executed, graded, ci_meta JSONB, started_at, finished_at, summary JSONB` |
-| `trials` | `id, run_id, case_id, repeat_idx, seed, rendered_prompt, output, latency_ms, ttft_ms, tokens_in, tokens_out, error, raw JSONB` |
-| `scores` | `id, trial_id, grader_id, grader_version, value float, passed bool, rationale, judge_trial JSONB` |
-| `comparisons` | `id, baseline_run_id, candidate_run_id, metrics JSONB, case_diff JSONB, config_diff JSONB, verdict, policy JSONB` |
+| `projects` | `id, name` |
+| `api_tokens` | `id, project_id, name, token_hash, scopes, created_at, revoked_at` |
+| `suite_versions` | `id, project_id, name, content_hash UNIQUE per project, spec JSONB` |
+| `prompt_versions` | `id, project_id, name, content_hash, spec JSONB` |
+| `model_configs` | `id, project_id, name, content_hash, spec JSONB` |
+| `runs` | `id, project_id, suite_name, suite/prompt/model version ids, status, fingerprint, run_seed, snapshot JSONB, environment JSONB, execution JSONB, total_trials, executed, graded, summary JSONB, verdict JSONB, verdict_label, baseline_run_id, baseline_name, kind (run, rerun, rescore, fresh_baseline), source_run_id, ci_meta JSONB, error, timestamps` |
+| `trials` | `id, run_id, case_key, repeat_idx, seed, order_idx, status, messages JSONB, output, error, latency_ms, ttft_ms, tokens_in, tokens_out, attempts, raw JSONB, scores JSONB ({grader_id: {value, passed, rationale, error}}), passed` |
 | `baselines` | `project_id, suite_name, name, run_id, updated_at, updated_by` |
-| `case_stats` | `run_id, case_key, metric, mean, n, flaky bool` (materialized for fast trends and per-case history) |
-| `human_labels` | `id, trial_id, grader_id, label float, labeler, created_at` |
-| `api_tokens` | `id, project_id, token_hash, scopes, created_at, revoked_at` |
+| `baseline_events` | `project_id, suite_name, name, run_id, created_at` (history of moves, for trend markers) |
+| `human_labels` | `id, trial_id, grader_id, grader_version, label, labeler, note, created_at` |
+| `jobs` | `id, queue, kind, payload JSONB, status, attempts, max_attempts, run_after, locked_by, locked_at, last_error` |
+
+Comparisons are computed on demand from two runs' trials (`POST /comparisons`), and a run's own
+comparison with its baseline is stored in `runs.verdict`. Trends and per-case history are queried from
+`runs.summary` and `trials` directly, which is fast enough at small-team scale.
 
 ### 4.4 The config snapshot (what "reproducible" means concretely)
 
@@ -596,7 +601,8 @@ as they can reach the API.
 docker compose up
   ├─ postgres   (volume: pgdata)
   ├─ api        (FastAPI + static dashboard, :8080)
-  ├─ worker     (scalable: `--scale worker=N`; runs exec, grading, analysis queues)
+  ├─ worker     (runs exec, grading, analysis queues; exec concurrency per endpoint is enforced per worker,
+  │              so run one worker per GPU; more workers only help with several model servers)
   └─ ollama     (optional profile; or point endpoints at an existing server)
 ```
 
@@ -661,7 +667,8 @@ keeps the run pipeline identical in local mode, in tests, and on the server.
 
 ## 17. Build plan
 
-Each milestone ends with something runnable and tested.
+Each milestone ends with something runnable and tested. All seven are implemented on this branch; the
+tests for each live in `backend/tests/` and the measured success criteria in `experiments/results/REPORT.md`.
 
 | # | Milestone | Done when |
 |---|---|---|

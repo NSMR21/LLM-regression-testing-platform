@@ -130,8 +130,22 @@ def sc1_power_curve(shifts: list[float], comparisons: int, n_cases: int, repeats
             fails += primary.status == "fail"
             deltas.append(primary.delta)
         rows.append({"shift": shift, "mean_observed_delta": float(np.mean(deltas)), "detection": rate(fails, comparisons)})
+    crossing = _crossing(rows)
     smallest = next((r["shift"] for r in sorted(rows, key=lambda r: -r["shift"]) if r["shift"] < 0 and r["detection"]["rate"] >= DETECTION_TARGET), None)
-    return {"n_cases": n_cases, "repeats": repeats, "comparisons": comparisons, "rows": rows, "smallest_drop_detected_80pct": smallest, "predicted_mde": float(np.mean(mdes)) if mdes else None}
+    return {
+        "n_cases": n_cases, "repeats": repeats, "comparisons": comparisons, "rows": rows,
+        "smallest_drop_detected_80pct": smallest, "measured_80pct_drop": crossing,
+        "predicted_mde": float(np.mean(mdes)) if mdes else None,
+    }
+
+
+def _crossing(rows: list[dict[str, Any]]) -> float | None:
+    """Drop at which measured detection crosses the 80% target (linear interpolation)."""
+    pts_ = sorted((-r["shift"], r["detection"]["rate"]) for r in rows if r["shift"] <= 0)
+    for (d0, p0), (d1, p1) in zip(pts_, pts_[1:], strict=False):
+        if p0 < DETECTION_TARGET <= p1:
+            return d0 + (DETECTION_TARGET - p0) * (d1 - d0) / (p1 - p0)
+    return None
 
 
 # --- SC2: identical runs do not raise false alarms beyond the threshold -----------------------
@@ -252,6 +266,7 @@ def sc4_reproducibility(runs: int, repeats: int) -> dict[str, Any]:
     fingerprints_equal = 0
     replay_verdicts: list[str] = []
     fresh_verdicts: list[str] = []
+    fresh_alarms = 0
     for i in range(runs):
         original = run_local(suite, v1, model, ex, run_seed=80_000 + i)
         # (a) re-score stored outputs with freshly built graders
@@ -274,7 +289,9 @@ def sc4_reproducibility(runs: int, repeats: int) -> dict[str, Any]:
         replay_verdicts.append(compare_records(replay, original).verdict)
         # (c) re-run with a fresh seed: a backend whose sampling cannot be replayed exactly
         fresh = run_local(suite, v1, model, ex, run_seed=90_000 + i)
-        fresh_verdicts.append(compare_records(fresh, original).verdict)
+        fresh_report = compare_records(fresh, original)
+        fresh_verdicts.append(fresh_report.verdict)
+        fresh_alarms += any(m.gated and m.status == "fail" for m in fresh_report.metrics)
     return {
         "runs": runs,
         "rescore_identical": rate(rescore_same, rescore_total),
@@ -282,11 +299,29 @@ def sc4_reproducibility(runs: int, repeats: int) -> dict[str, Any]:
         "replay_fingerprint_equal": rate(fingerprints_equal, runs),
         "replay_verdicts": {v: replay_verdicts.count(v) for v in sorted(set(replay_verdicts))},
         "fresh_seed_verdicts": {v: fresh_verdicts.count(v) for v in sorted(set(fresh_verdicts))},
-        "fresh_seed_regression_alarms": rate(fresh_verdicts.count("fail"), runs),
+        "fresh_seed_regression_alarms": rate(fresh_alarms, runs),
     }
 
 
 # --- report -----------------------------------------------------------------------------------
+
+
+def mde_sentence(curve: dict[str, Any]) -> str:
+    predicted, measured = curve.get("predicted_mde"), curve.get("measured_80pct_drop")
+    if predicted is None or measured is None:
+        return "The measured curve did not cross 80% inside the tested range."
+    gap = measured - predicted
+    if abs(gap) <= 0.005:
+        verdict = "agrees with"
+    elif gap > 0:
+        verdict = "is slightly optimistic compared with"
+    else:
+        verdict = "is slightly conservative compared with"
+    return (
+        f"Each run reports its own minimum detectable effect (MDE, 80% power): {predicted * 100:.1f} pts on average here."
+        f" The measured curve crosses 80% at about {measured * 100:.1f} pts, so the reported MDE {verdict} the measured power"
+        f" (by {abs(gap) * 100:.1f} pts). Treat it as a guide to what a suite can catch, not a guarantee."
+    )
 
 
 def fmt_rate(r: dict[str, Any], digits: int = 1) -> str:
@@ -343,9 +378,11 @@ def render(results: dict[str, Any]) -> str:
     smallest = curve["smallest_drop_detected_80pct"]
     lines += [
         "",
-        f"Smallest drop detected at least {DETECTION_TARGET:.0%} of the time: **{'none in range' if smallest is None else f'{abs(smallest) * 100:.0f} pts'}**."
-        f" The minimum detectable effect that each run reports for itself (80% power) was {curve['predicted_mde'] * 100:.1f} pts on average,"
-        " which matches the measured curve: the MDE shown on every run is a trustworthy guide to what a suite can catch.",
+        f"Smallest tested drop detected at least {DETECTION_TARGET:.0%} of the time: **{'none in range' if smallest is None else f'{abs(smallest) * 100:.0f} pts'}**.",
+        "",
+        mde_sentence(curve),
+        "",
+        "All rows share the same 40 baseline runs, which is why every row's observed Δ is offset from the true drop by about the same amount.",
         "",
         "## 2. False alarms on identical runs",
         "",
@@ -406,7 +443,7 @@ def render(results: dict[str, Any]) -> str:
         f"| Re-run: same config fingerprint | {fmt_rate(sc4['replay_fingerprint_equal'], 0)} |",
         f"| Re-run vs original: verdicts | {sc4['replay_verdicts']} |",
         f"| Re-run with a fresh seed (non-replayable sampling): verdicts | {sc4['fresh_seed_verdicts']} |",
-        f"| Re-run with a fresh seed: regression alarms | {fmt_rate(sc4['fresh_seed_regression_alarms'], 0)} |",
+        f"| Re-run with a fresh seed: regression alarms (paired test only; gates not counted) | {fmt_rate(sc4['fresh_seed_regression_alarms'], 0)} |",
         "",
         "On a real GPU backend exact replay is not guaranteed (kernels and batching are non-deterministic), so the"
         " server's `POST /runs/{id}/rerun` treats reproduction as statistical equivalence: it compares the rerun with the"

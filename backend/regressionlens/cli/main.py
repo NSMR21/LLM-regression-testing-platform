@@ -15,7 +15,9 @@ from ..records import RunRecord
 from ..report import print_console, render_markdown
 from ..spec import ExecutionSpec, SpecError, load_model, load_prompt, load_suite
 
-app = typer.Typer(add_completion=False, no_args_is_help=True, help=__doc__)
+app = typer.Typer(
+    add_completion=False, no_args_is_help=True, help="Run LLM test suites locally or on a RegressionLens server, and gate CI on the verdict."
+)
 console = Console(stderr=True, width=None if sys.stderr.isatty() else 120)
 
 EXIT = {"pass": 0, "fail": 1, "inconclusive": 2, "error": 3}
