@@ -39,6 +39,7 @@ class RunSummary(BaseModel):
     n_trials: int
     repeats: int
     metrics: dict[str, float]
+    metric_ci: dict[str, list[float]] = Field(default_factory=dict)
     per_tag: dict[str, dict[str, float]] = Field(default_factory=dict)
     error_rate: float = 0.0
     grader_error_rate: float = 0.0

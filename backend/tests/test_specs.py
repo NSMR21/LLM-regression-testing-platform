@@ -3,7 +3,7 @@ import pytest
 from regressionlens.graders import validate_suite
 from regressionlens.spec import PromptSpec, SpecError, SuiteSpec, load_model, load_prompt, load_suite
 
-from .conftest import EXAMPLE, make_suite
+from .helpers import EXAMPLE, make_suite
 
 
 def test_example_suite_loads_and_inlines_files():

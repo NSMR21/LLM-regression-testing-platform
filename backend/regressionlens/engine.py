@@ -23,6 +23,7 @@ from .records import RunRecord, RunSummary, ScoreRecord, TrialRecord
 from .spec import CaseSpec, ExecutionSpec, ModelSpec, PromptSpec, SuiteSpec
 from .stats import RunView, flaky_cases, null_difference_sd, percentile
 from .stats import mde as compute_mde
+from .stats.core import t_interval
 from .util import canonical_json, content_hash, derive_seed
 
 SNAPSHOT_SCHEMA_VERSION = 1
@@ -215,10 +216,13 @@ def latency_by_case(trials: list[TrialRecord]) -> dict[str, list[float]]:
 def summarize(suite: SuiteSpec, trials: list[TrialRecord], repeats: int) -> RunSummary:
     table = metric_table(trials)
     metrics: dict[str, float] = {}
+    metric_ci: dict[str, list[float]] = {}
     for name, cases in table.items():
         means = [float(np.mean(v)) for v in cases.values() if v]
         if means:
             metrics[name] = float(np.mean(means))
+            low, high = t_interval(np.asarray(means), alpha=suite.verdict.alpha)
+            metric_ci[name] = [max(0.0, low), min(1.0, high)]
     per_tag: dict[str, dict[str, float]] = {}
     tags = sorted({t for c in suite.cases for t in c.tags})
     for tag in tags:
@@ -243,6 +247,7 @@ def summarize(suite: SuiteSpec, trials: list[TrialRecord], repeats: int) -> RunS
         n_trials=n_trials,
         repeats=repeats,
         metrics=metrics,
+        metric_ci=metric_ci,
         per_tag=per_tag,
         error_rate=errors / n_trials if n_trials else 0.0,
         grader_error_rate=grader_errors / len(graded) if graded else 0.0,

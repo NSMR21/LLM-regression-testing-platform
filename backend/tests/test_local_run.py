@@ -6,7 +6,7 @@ from regressionlens.local import compare_records, run_local
 from regressionlens.records import RunRecord
 from regressionlens.spec import ExecutionSpec, SuiteSpec
 
-from .conftest import EXAMPLE, make_suite, sim_model
+from .helpers import EXAMPLE, make_suite, sim_model
 
 
 def test_plan_trials_is_deterministic_and_shuffled(suite):

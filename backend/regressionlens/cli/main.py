@@ -19,7 +19,8 @@ app = typer.Typer(add_completion=False, no_args_is_help=True, help=__doc__)
 console = Console(stderr=True, width=None if sys.stderr.isatty() else 120)
 
 EXIT = {"pass": 0, "fail": 1, "inconclusive": 2, "error": 3}
-LOCAL_DIR = Path(os.environ.get("RLENS_HOME", ".rlens"))
+def local_dir() -> Path:
+    return Path(os.environ.get("RLENS_HOME", ".rlens"))
 
 
 def exit_code(verdict: str, inconclusive_policy: str) -> int:
@@ -43,7 +44,7 @@ def _read_record(path: Path) -> RunRecord:
 def _local_baseline(name_or_path: str) -> RunRecord | None:
     path = Path(name_or_path)
     if not path.exists():
-        path = LOCAL_DIR / "baselines" / f"{name_or_path}.json"
+        path = local_dir() / "baselines" / f"{name_or_path}.json"
     if not path.exists():
         console.print(f"[yellow]baseline {name_or_path!r} not found; running without a baseline[/]")
         return None
@@ -136,7 +137,7 @@ def run(
         record.verdict = report.to_dict()
         record.baseline_run_id = base.run_id if base else None
         record.ci_meta = ci_meta
-        out = out or LOCAL_DIR / "runs" / f"{record.run_id}.json"
+        out = out or local_dir() / "runs" / f"{record.run_id}.json"
         out.parent.mkdir(parents=True, exist_ok=True)
         out.write_text(record.model_dump_json(indent=2), encoding="utf-8")
         if promote:
@@ -187,7 +188,7 @@ def compare(
 
 
 def _set_local_baseline(name: str, run_file: Path) -> None:
-    target = LOCAL_DIR / "baselines" / f"{name}.json"
+    target = local_dir() / "baselines" / f"{name}.json"
     target.parent.mkdir(parents=True, exist_ok=True)
     shutil.copyfile(run_file, target)
     console.print(f"[green]baseline {name!r} -> {run_file}[/]")
@@ -204,7 +205,7 @@ def baseline_set(name: str, run_file: Path = typer.Argument(..., exists=True, di
 
 @baseline_app.command("list")
 def baseline_list() -> None:
-    folder = LOCAL_DIR / "baselines"
+    folder = local_dir() / "baselines"
     for path in sorted(folder.glob("*.json")) if folder.exists() else []:
         record = _read_record(path)
         console.print(f"{path.stem}: {record.run_id} ({record.created_at:%Y-%m-%d %H:%M}) {record.fingerprint[:19]}")
@@ -238,3 +239,75 @@ def main() -> None:  # pragma: no cover
 
 if __name__ == "__main__":  # pragma: no cover
     main()
+
+
+# --- server-side commands (need `pip install regressionlens[server]`) -------------------------
+
+
+@app.command()
+def server(
+    host: str = typer.Option("0.0.0.0", "--host"),
+    port: int = typer.Option(8080, "--port"),
+    with_worker: bool = typer.Option(False, "--with-worker", help="Also run a queue worker in this process"),
+) -> None:
+    """Start the API server (and optionally a worker) for RLENS_DATABASE_URL."""
+    import threading
+
+    import uvicorn
+
+    from ..api.app import create_app
+    from ..config import Settings
+
+    settings = Settings()
+    application = create_app(settings)
+    if with_worker:
+        from ..worker import Worker
+
+        def start_worker() -> None:
+            from ..db.migrate import upgrade
+
+            if settings.auto_migrate:
+                upgrade(settings.database_url)
+            Worker(application.state.db, settings).run_forever()
+
+        threading.Thread(target=start_worker, daemon=True, name="rlens-worker").start()
+    uvicorn.run(application, host=host, port=port, log_level="info")
+
+
+@app.command()
+def worker() -> None:
+    """Run a queue worker (executes, grades and analyzes runs)."""
+    from ..worker import main as worker_main
+
+    worker_main()
+
+
+@app.command()
+def migrate(database_url: str | None = typer.Option(None, "--database-url", envvar="RLENS_DATABASE_URL")) -> None:
+    """Apply database migrations."""
+    from ..config import Settings
+    from ..db.migrate import upgrade
+
+    upgrade(database_url or Settings().database_url)
+    console.print("[green]database is up to date[/]")
+
+
+token_app = typer.Typer(help="Manage API tokens (talks to the database directly).")
+app.add_typer(token_app, name="token")
+
+
+@token_app.command("create")
+def token_create(
+    project: str = typer.Option("default", "--project"),
+    name: str = typer.Option("", "--name"),
+    scopes: str = typer.Option("read,run", "--scopes", help="Comma-separated: read, run, admin"),
+) -> None:
+    """Create an API token and print it once."""
+    from .. import services
+    from ..config import Settings
+    from ..db.session import Database
+
+    db = Database(Settings().database_url)
+    with db.session() as s:
+        token = services.create_token(s, services.ensure_project(s, project), name, scopes)
+    sys.stdout.write(token + "\n")

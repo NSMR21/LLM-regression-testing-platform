@@ -8,7 +8,7 @@ from regressionlens.providers.ollama import OllamaProvider
 from regressionlens.providers.openai_compat import OpenAICompatProvider
 from regressionlens.spec import ModelSpec
 
-from .conftest import sim_model
+from .helpers import sim_model
 
 
 def ollama_transport(seen: list):
