@@ -154,8 +154,9 @@ def run(
                 fresh_baseline=fresh_baseline, ci_meta=ci_meta, timeout_s=timeout,
                 on_status=lambda st: console.print(f"[dim]{st}[/]"),
             )
-            if promote and result["verdict"]["verdict"] in {"pass", "inconclusive"}:
+            if promote and result["verdict"]["verdict"] != "error":
                 client.promote(result["run_id"], promote, suite_name=s.name)
+                console.print(f"[green]baseline {promote!r} -> {result['run_id']}[/]")
         except ClientError as exc:
             console.print(f"[red]server error:[/] {exc}")
             raise typer.Exit(3) from exc
@@ -222,12 +223,17 @@ def show(run_file: Path = typer.Argument(..., exists=True, dir_okay=False), as_j
 
 
 def _ci_meta() -> dict:
+    """Where this run came from: commit, branch and PR from GitHub Actions or GitLab CI variables."""
     env = os.environ
+    pr = env.get("RLENS_PR") or env.get("CI_MERGE_REQUEST_IID")
+    ref = env.get("GITHUB_REF", "")
+    if not pr and ref.startswith("refs/pull/"):
+        pr = ref.split("/")[2]
     meta = {
-        "git_sha": env.get("GITHUB_SHA") or env.get("CI_COMMIT_SHA"),
-        "branch": env.get("GITHUB_HEAD_REF") or env.get("GITHUB_REF_NAME") or env.get("CI_COMMIT_REF_NAME"),
-        "pr": env.get("GITHUB_PR_NUMBER") or env.get("CI_MERGE_REQUEST_IID"),
-        "repository": env.get("GITHUB_REPOSITORY"),
+        "git_sha": env.get("RLENS_GIT_SHA") or env.get("GITHUB_SHA") or env.get("CI_COMMIT_SHA"),
+        "branch": env.get("RLENS_BRANCH") or env.get("GITHUB_HEAD_REF") or env.get("GITHUB_REF_NAME") or env.get("CI_COMMIT_REF_NAME"),
+        "pr": pr,
+        "repository": env.get("GITHUB_REPOSITORY") or env.get("CI_PROJECT_PATH"),
         "ci": bool(env.get("CI")),
     }
     return {k: v for k, v in meta.items() if v}

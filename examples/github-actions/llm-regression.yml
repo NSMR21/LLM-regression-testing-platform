@@ -1,0 +1,66 @@
+# Copy to .github/workflows/llm-regression.yml in the repository that holds your prompts.
+#
+# Needs two repository secrets:
+#   RLENS_URL    URL of your RegressionLens server (reachable from GitHub's runners)
+#   RLENS_TOKEN  an API token with the "run" scope (`rlens token create --scopes read,run`)
+#
+# The runner never talks to your model: it sends the suite, prompt and model config to
+# RegressionLens, whose workers next to your GPU do the generation.
+name: llm-regression
+
+on:
+  pull_request:
+    paths: ["prompts/**", "suites/**", "models/**"]
+  push:
+    branches: [main]
+    paths: ["prompts/**", "suites/**", "models/**"]
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    env:
+      RLENS_URL: ${{ secrets.RLENS_URL }}
+      RLENS_TOKEN: ${{ secrets.RLENS_TOKEN }}
+      RLENS_PR: ${{ github.event.pull_request.number }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install rlens
+        run: pip install "regressionlens @ git+https://github.com/NSMR21/LLM-regression-testing-platform.git#subdirectory=backend"
+
+      # Pull requests: compare against the `main` baseline and gate the merge.
+      - name: Regression check
+        if: github.event_name == 'pull_request'
+        id: rlens
+        run: |
+          set +e
+          rlens run -s suites/support-qa.yaml -p prompts/support.yaml -m models/llama3.2-3b.yaml \
+            --repeats 5 --baseline main --report-md report.md
+          code=$?
+          echo "exit_code=$code" >> "$GITHUB_OUTPUT"
+          exit 0
+      - name: Comment on the pull request
+        if: github.event_name == 'pull_request' && always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh pr comment "${{ github.event.pull_request.number }}" --body-file report.md --edit-last || gh pr comment "${{ github.event.pull_request.number }}" --body-file report.md
+      - name: Gate
+        if: github.event_name == 'pull_request'
+        # 0 pass, 1 fail, 2 inconclusive (soft: treat as a warning), 3 error
+        run: |
+          code=${{ steps.rlens.outputs.exit_code }}
+          if [ "$code" = "2" ]; then echo "::warning::RegressionLens verdict is inconclusive"; exit 0; fi
+          exit "$code"
+
+      # Merges to main: run and move the `main` baseline to this run.
+      - name: Update baseline
+        if: github.event_name == 'push'
+        run: |
+          rlens run -s suites/support-qa.yaml -p prompts/support.yaml -m models/llama3.2-3b.yaml \
+            --repeats 5 --baseline main --promote main || [ $? -le 2 ]
